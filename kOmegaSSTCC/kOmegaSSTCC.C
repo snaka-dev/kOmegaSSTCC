@@ -28,6 +28,8 @@ License
 #include "bound.H"
 #include "wallDist.H"
 
+#include "uniformDimensionedFields.H"
+
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
@@ -350,6 +352,7 @@ kOmegaSSTCC<BasicTurbulenceModel>::kOmegaSSTCC
             false
         )
     ),
+
 // curvature correction
     cr1_
     (
@@ -405,6 +408,58 @@ kOmegaSSTCC<BasicTurbulenceModel>::kOmegaSSTCC
             IOobject::AUTO_WRITE
         ),
         this->mesh_
+    ),
+    W_
+    (
+        IOobject
+        (
+            "W",
+            this->runTime_.timeName(),
+            this->mesh_,
+            IOobject::NO_READ, //READ_IF_PRESENT,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh_,
+        dimensionedScalar("W",dimless/dimTime,0.)
+    ),
+    S_
+    (
+        IOobject
+        (
+            "S",
+            this->runTime_.timeName(),
+            this->mesh_,
+            IOobject::NO_READ, //READ_IF_PRESENT,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh_,
+        dimensionedScalar("S",dimless/dimTime,0.)
+    ),
+    Gb_
+    (
+        IOobject
+        (
+            "Gb",
+            this->runTime_.timeName(),
+            this->mesh_,
+            IOobject::NO_READ, //READ_IF_PRESENT,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh_,
+        dimensionedScalar("Gb",dimensionSet(1,-1,-3,0,0), 0.0)
+    ),
+    Fr1_
+    (
+        IOobject
+        (
+            "Fr1",
+            this->runTime_.timeName(),
+            this->mesh_,
+            IOobject::NO_READ, //READ_IF_PRESENT,
+            IOobject::AUTO_WRITE
+        ),
+        this->mesh_,
+        scalar(0.)
     )
 {
     bound(k_, this->kMin_);
@@ -437,7 +492,7 @@ bool kOmegaSSTCC<BasicTurbulenceModel>::read()
         b1_.readIfPresent(this->coeffDict());
         c1_.readIfPresent(this->coeffDict());
         F3_.readIfPresent("F3", this->coeffDict());
-	cr1_.readIfPresent(this->coeffDict());
+        cr1_.readIfPresent(this->coeffDict());
         cr2_.readIfPresent(this->coeffDict());
         cr3_.readIfPresent(this->coeffDict());
 
@@ -480,6 +535,10 @@ void kOmegaSSTCC<BasicTurbulenceModel>::correct()
 //
     volScalarField::Internal GbyNu(dev(twoSymm(tgradU()())) && tgradU()());
     volScalarField::Internal G(this->GName(), nut()*GbyNu);
+    //
+    W_ = sqrt(2*magSqr(skew(tgradU())));
+    S_ = sqrt(S2);
+    //
     tgradU.clear();
 
 ///////////////// curvature correction
@@ -531,6 +590,7 @@ void kOmegaSSTCC<BasicTurbulenceModel>::correct()
 
     volScalarField F1(this->F1(CDkOmega));
     volScalarField F23(this->F23());
+   
     
     volScalarField Fr1    //curvature correction
     (
@@ -545,7 +605,51 @@ void kOmegaSSTCC<BasicTurbulenceModel>::correct()
 			scalar(0.0)
 	)
     );
-   
+  
+    Fr1_.ref() = Fr1.internalField(); 
+ 
+////////////////////////////////////////////////////////////////////////
+// Buoyancy correction -start (Brecht DEVOLDER, 19 september 2017)
+////////////////////////////////////////////////////////////////////////
+        
+    // Access to the density
+    volScalarField& rho_ = const_cast<volScalarField&>
+    (
+        this->mesh_.objectRegistry::template
+        lookupObject<volScalarField>("rho")
+    );
+
+    // Mass flux
+    surfaceScalarField rhoPhi = fvc::interpolate(rho_)*this->phi_;
+
+    // Gravitational acceleration
+    //dimensionedVector g
+    //(
+    //    "g",
+    //    dimensionSet(0, 1, -2, 0, 0, 0, 0),
+    //    vector(0, 0, -9.81)
+    //);
+    const uniformDimensionedVectorField& g =
+        this->mesh_.objectRegistry::template
+        lookupObject<uniformDimensionedVectorField>("g");
+    
+    // Constant coefficients
+    scalar sigmaT = 0.85;	//turbulent Prandtl number (dimensionless)
+    dimensionedScalar kSmall
+    (
+        "kSmall",
+        k_.dimensions(),
+        SMALL
+    );
+    
+    // Buoyancy correction term
+    volScalarField Gb("Gb", -nut/sigmaT*(g & fvc::grad(rho_)));
+    Gb_.ref() = Gb.internalField(); 
+
+////////////////////////////////////////////////////////////////////////
+// Buoyancy correction -end (Brecht DEVOLDER, 19 september 2017)
+////////////////////////////////////////////////////////////////////////
+
     {
         volScalarField::Internal gamma(this->gamma(F1));
         volScalarField::Internal beta(this->beta(F1));

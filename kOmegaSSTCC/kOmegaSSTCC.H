@@ -190,6 +190,11 @@ protected:
             volScalarField k_;
             volScalarField omega_;
 
+            // for Writing out variables
+            volScalarField W_;
+            volScalarField S_;
+            volScalarField Gb_;
+            volScalarField Fr1_;
 
     // Protected Member Functions
 
@@ -376,7 +381,7 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 #ifdef NoRepository
-    #include "kOmegaSSTCC.C"
+#include "kOmegaSSTCC.C"
 #endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
